@@ -10,43 +10,70 @@ import datetime
 import presets
 import utils
 from pathlib import Path
+import transforms as T
 
 from torch.utils.tensorboard import SummaryWriter
-writer = SummaryWriter()
-
-
-#import torchvision.models as models
-
-from models.ssd import ssd300_resnet50, ssd_resnet50_adapted, ssd_resnet50_adapted_v2, ssd300_resnet101,\
-    ssd300_resnet152, ssd300_mobilenet_v2, ssd_frozen
-
+#writer = SummaryWriter()
 
 import models
-from engine import train_one_epoch, evaluate
-from coco_utils import get_coco, get_coco_kp, get_kitti
-from group_by_aspect_ratio import GroupedBatchSampler, create_aspect_ratio_groups
+from engine import train_one_epoch #, evaluate
 
 torch.autograd.set_detect_anomaly(False)  
 torch.autograd.profiler.profile(False)  
 torch.autograd.profiler.emit_nvtx(False)
 
-def get_dataset(name, image_set, transform, data_path):
-    paths = {
-        "coco": (data_path, get_coco, 91),
-        "coco_kp": (data_path, get_coco_kp, 2),
-        "kitti": (data_path, get_kitti, 8)
-    }
-    p, ds_fn, num_classes = paths[name]
+def get_MNIST_dataset():
+    '''
+    Get train, validation, test dataset partion from pytorch dataset.
+    '''
+    train_set = torchvision.datasets.MNIST(root="datasets/MNIST", train=True, transform=T.ToTensor(), download=False)
+    test_set = torchvision.datasets.MNIST(root="datasets/MNIST", train=False, transform=T.ToTensor(), download=False)
+    train_set, valid_set = torch.utils.data.random_split(train_set, [50000, 10000])
+    return train_set, valid_set, test_set
 
-    ds = ds_fn(p, image_set=image_set, transforms=transform)
-    return ds, num_classes
 
-def get_transform(train, data_augmentation):
-    return presets.DetectionPresetTrain(data_augmentation) if train else presets.DetectionPresetEval()
+def get_MNIST_dataloader(train_set, valid_set, test_set):
+    '''
+    Create dataloader for training, validation, and test set.
+    '''
+    def batching_fn(batch):
+        '''
+        Somehow the torchvision MNIST dataset cant load into dataloader
+        Need to write our own batching/collating function
+        '''
+        target_list = []
+        img_list = []
+        for i in batch:
+            image = i[0][0]
+            label = i[1]
+            img_list.append(image)
+            target_list.append(label)
+        return torch.stack(img_list), torch.tensor(target_list)
+
+    train_loader = torch.utils.data.DataLoader(
+        dataset=train_set,
+        batch_size=args.batch_size,
+        collate_fn = batching_fn,
+        shuffle=True,
+        num_workers=args.workers)
     
+    valid_loader = torch.utils.data.DataLoader(
+        dataset=valid_set,
+        batch_size=args.batch_size,
+        collate_fn = batching_fn,
+        shuffle=True,
+        num_workers=args.workers)
+
+    test_loader = torch.utils.data.DataLoader(
+        dataset=test_set,
+        batch_size=args.batch_size,
+        shuffle=True,
+        num_workers=args.workers)
+
+    return train_loader, valid_loader, test_loader
+
 def file_print(evaluate, model, data_loader_test, device, epoch, output_dir):
     import sys
-
     print('saving results')
     original_stdout = sys.stdout
     (Path(output_dir)/'logs').mkdir(parents=True, exist_ok=True)
@@ -60,8 +87,8 @@ def get_args_parser(add_help=True):
     import argparse
     parser = argparse.ArgumentParser(description='PyTorch Detection Training', add_help=add_help)
 
-    parser.add_argument('--data-path', default='/data/datasets/coco', help='dataset')
-    parser.add_argument('--dataset', default='coco', help='dataset')
+    #parser.add_argument('--data-path', default='/data/datasets/coco', help='dataset')
+    parser.add_argument('--dataset', default='mnist', help='dataset')
     parser.add_argument('--model', default='ssd_frozen', help='model')
     parser.add_argument('--device', default='cuda', help='device')
     parser.add_argument('-b', '--batch-size', default=2, type=int,
@@ -121,6 +148,7 @@ def get_args_parser(add_help=True):
     parser.add_argument('--log-epochs', default=5, type=int, help='specific which how often to evalute and store logs file')
     return parser
 
+
 def main(args):
     device = torch.device('cuda')
     torch.backends.cudnn.benchmark = True
@@ -128,36 +156,28 @@ def main(args):
     # Data Loading code
     print('loading data')
     
-    dataset, num_classes = get_dataset(args.dataset, "train", get_transform(True, args.data_augmentation), args.data_path)
-    
-    dataset_test, _ = get_dataset(args.dataset, "val", get_transform(False, args.data_augmentation), args.data_path)
-    
+    #train_set, valid_set, test_set = get_MNIST_dataset()
+
     print('creating data loaders')
-    train_sampler = torch.utils.data.RandomSampler(dataset)
-    test_sampler = torch.utils.data.SequentialSampler(dataset_test)
 
-    if args.aspect_ratio_group_factor >= 0:
-        group_ids = create_aspect_ratio_groups(dataset, k=args.aspect_ratio_group_factor)
-        train_batch_sampler = GroupedBatchSampler(train_sampler, group_ids, args.batch_size)
-    else:
-        train_batch_sampler = torch.utils.data.BatchSampler(
-            train_sampler, args.batch_size, drop_last=True)
+    #train_loader, valid_loader, test_loader = get_MNIST_dataloader(
+    #    train_set, valid_set, test_set)
 
-    data_loader = torch.utils.data.DataLoader(
-        dataset, batch_sampler=train_batch_sampler, num_workers=args.workers,
-        collate_fn=utils.collate_fn, pin_memory = True)
+    '''
+    # Sanity Check
+    for batch_idx, (x, target) in enumerate(train_loader):
+        print(target.shape)
+        print(x.shape)
+        print(target)
+        return
+    '''
     
-
-    data_loader_test = torch.utils.data.DataLoader(
-        dataset_test, batch_size=1,
-        sampler=test_sampler, num_workers=args.workers,
-        collate_fn=utils.collate_fn)
-
     print("Creating model")
-    model = models.__dict__[args.model](False, True, num_classes, True)
+    num_class = 10
+    model = models.__dict__[args.model](num_class)
 
     model.to(device)
-
+    return
     model_without_ddp = model
     params = [p for p in model.parameters() if p.requires_grad]
     optimizer = torch.optim.SGD(

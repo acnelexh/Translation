@@ -1,17 +1,19 @@
 #!/bin/bash
 #lr=0.0026
-#    --data-augmentation retinanet\
+#   --data-augmentation retinanet\
+#   --data-path /data/datasets/coco\
+#   --output-dir model_resnetssd_coco_unfreeze\
+#   --model ssd_resnet_baseline_unfreeze
 python train.py\
-    --data-path /data/datasets/coco\
     --batch-size 32\
-    --dataset coco\
+    --dataset mnist\
     --epochs 65\
     --lr-steps 43 54\
-    --aspect-ratio-group-factor 3\
     --lr 0.001\
     --weight-decay 0.0005\
     --momentum 0.9\
-    --data-augmentation ssd\
-    --output-dir model_resnetssd_coco_unfreeze\
-    --model ssd_resnet_baseline_unfreeze
+    --data-augmentation mnist\
+    --workers 10\
+    --model ResNet50
     
+

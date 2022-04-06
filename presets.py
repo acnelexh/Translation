@@ -23,7 +23,10 @@ class DetectionPresetTrain:
                 T.ToTensor(),
             ])
         elif data_augmentation == 'cache':
-            # for caching, no data aug
+            self.transforms = T.Compose([
+                T.ToTensor(),
+            ])
+        elif data_augmentation == 'mnist':
             self.transforms = T.Compose([
                 T.ToTensor(),
             ])

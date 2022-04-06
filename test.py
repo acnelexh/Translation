@@ -5,7 +5,6 @@ from torchvision.models.detection import retinanet
 import torchvision.models
 import torchvision.models.detection
 
-from coco_utils import get_kitti, get_coco
 import presets
 
 #import torchvision.models as models
@@ -339,7 +338,6 @@ def test_print():
 
 
 def test_evaluate(checkpoint):
-    from coco_utils import get_coco, get_coco_kp
     import utils
     from engine import evaluate
     from torch.utils.model_zoo import load_url as load_state_dict_from_url
